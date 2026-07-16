@@ -356,20 +356,31 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
  */
 long do_faccessat(int dfd, const char __user *filename, int mode)
 {
-	const struct cred *old_cred;
-	struct cred *override_cred;
-	struct path path;
-	struct inode *inode;
-	struct vfsmount *mnt;
-	int res;
-	unsigned int lookup_flags = LOOKUP_FOLLOW;
-	
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	struct filename* fname;
-	int status;
-	int error;
-#endif
+    /* C'EST ICI QUE TU INSÈRES LE BLOC CONFIG_KSU_SUSFS_SUS_PATH */
+    #ifdef CONFIG_KSU_SUSFS_SUS_PATH
+        struct filename* fname;
+        int status;
+        int error;
+    #endif
 
+    struct vfsmount *mnt;
+    int res;
+    unsigned int lookup_flags = LOOKUP_FOLLOW;
+
+    #ifdef CONFIG_KSU
+        ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+    #endif
+
+    /* ET ICI L'AUTRE PARTIE DU BLOC SUSFS */
+    #ifdef CONFIG_KSU_SUSFS_SUS_PATH
+        fname = getname_safe(filename);
+        status = susfs_sus_path_by_filename(fname, &error, SYSCALL_FAMILY_ALL_ENOENT);
+        putname_safe(fname);
+
+        if (status) {
+            return error;
+        }
+    #endif
 	
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
