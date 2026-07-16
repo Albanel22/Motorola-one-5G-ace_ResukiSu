@@ -28,12 +28,13 @@
 #include "internal.h"
 
 #define SEQ_PUT_DEC(str, val) \
-		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+	seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
 #ifdef CONFIG_KSU_SUSFS
 	if (susfs_is_sus_task(mm))
-		    return;
+		return;
 #endif
 	unsigned long text, lib, swap, anon, file, shmem;
 	unsigned long hiwater_vm, total_vm, hiwater_rss, total_rss;
@@ -62,7 +63,12 @@ void task_mem(struct seq_file *m, struct mm_struct *mm)
 	lib = (mm->exec_vm << PAGE_SHIFT) - text;
 
 	swap = get_mm_counter(mm, MM_SWAPENTS);
+
+#ifdef CONFIG_KSU_SUSFS
 	SEQ_PUT_DEC("VmPeak:\t", hiwater_vm);
+#else
+	seq_printf(m, "VmPeak:\t%8lu kB\n", hiwater_vm << (PAGE_SHIFT - 10));
+#endif
 	SEQ_PUT_DEC(" kB\nVmSize:\t", total_vm);
 	SEQ_PUT_DEC(" kB\nVmLck:\t", mm->locked_vm);
 	SEQ_PUT_DEC(" kB\nVmPin:\t", mm->pinned_vm);
