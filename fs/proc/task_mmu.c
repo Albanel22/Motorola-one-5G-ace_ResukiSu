@@ -27,12 +27,10 @@
 #include <asm/tlbflush.h>
 #include "internal.h"
 
+#define SEQ_PUT_DEC(str, val) \
+		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
-#ifdef CONFIG_KSU_SUSFS
-	if (susfs_is_sus_task(mm))
-		return;
-#endif
 	unsigned long text, lib, swap, anon, file, shmem;
 	unsigned long hiwater_vm, total_vm, hiwater_rss, total_rss;
 
@@ -42,9 +40,9 @@ void task_mem(struct seq_file *m, struct mm_struct *mm)
 
 	/*
 	 * Note: to minimize their overhead, mm maintains hiwater_vm and
-	 * hiwater_rss only when about to *lower* total_vm or rss. Any
+	 * hiwater_rss only when about to *lower* total_vm or rss.  Any
 	 * collector of these hiwater stats must therefore get total_vm
-	 * and rss too, which will usually be the higher. Barriers? not
+	 * and rss too, which will usually be the higher.  Barriers? not
 	 * worth the effort, such snapshots can always be inconsistent.
 	 */
 	hiwater_vm = total_vm = mm->total_vm;
@@ -60,15 +58,7 @@ void task_mem(struct seq_file *m, struct mm_struct *mm)
 	lib = (mm->exec_vm << PAGE_SHIFT) - text;
 
 	swap = get_mm_counter(mm, MM_SWAPENTS);
-
-	seq_printf(m, "VmPeak:\t%8lu kB\n", hiwater_vm << (PAGE_SHIFT - 10));
-	seq_printf(m, "VmSize:\t%8lu kB\n", total_vm << (PAGE_SHIFT - 10));
-	seq_printf(m, "VmLck:\t%8lu kB\n", mm->locked_vm << (PAGE_SHIFT - 10));
-	seq_printf(m, "VmPin:\t%8lu kB\n", mm->pinned_vm << (PAGE_SHIFT - 10));
-	seq_printf(m, "VmHWM:\t%8lu kB\n", hiwater_rss << (PAGE_SHIFT - 10));
-	seq_printf(m, "VmRSS:\t%8lu kB\n", total_rss << (PAGE_SHIFT - 10));
-}
-	
+	SEQ_PUT_DEC("VmPeak:\t", hiwater_vm);
 	SEQ_PUT_DEC(" kB\nVmSize:\t", total_vm);
 	SEQ_PUT_DEC(" kB\nVmLck:\t", mm->locked_vm);
 	SEQ_PUT_DEC(" kB\nVmPin:\t", mm->pinned_vm);
