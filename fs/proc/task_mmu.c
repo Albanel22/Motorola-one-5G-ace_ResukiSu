@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/mm.h>
-
-#ifdef CONFIG_KSU_SUSFS
-#include <linux/susfs.h>
-#endif
-
 #include <linux/vmacache.h>
 #include <linux/hugetlb.h>
 #include <linux/huge_mm.h>
