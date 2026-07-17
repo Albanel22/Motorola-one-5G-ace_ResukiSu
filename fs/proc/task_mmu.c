@@ -28,12 +28,12 @@
 #include "internal.h"
 
 #define SEQ_PUT_DEC(str, val) \
-		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+	seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
 #ifdef CONFIG_KSU_SUSFS
-		if (susfs_is_sus_task(mm))
-				return;
+	if (susfs_is_sus_task(mm))
+		return;
 #endif
 	unsigned long text, lib, swap, anon, file, shmem;
 	unsigned long hiwater_vm, total_vm, hiwater_rss, total_rss;
