@@ -3,7 +3,7 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
-#include <linux/ksu.h>
+#include "../kernelSU/ksu.h"
 #include <linux/susfs.h>
 #include <linux/string.h>
 #include <linux/mm.h>
