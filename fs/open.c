@@ -357,7 +357,8 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
  */
 long do_faccessat(int dfd, const char __user *filename, int mode)
 {
-    /* C'EST ICI QUE TU INSÈRES LE BLOC CONFIG_KSU_SUSFS_SUS_PATH */
+    struct cred *override_cred;
+    const struct cred *old_cred;
     #ifdef CONFIG_KSU_SUSFS_SUS_PATH
         struct filename* fname;
         int status;
