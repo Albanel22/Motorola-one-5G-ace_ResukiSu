@@ -1,4 +1,4 @@
-name: Kernel CI ReSukiSU â€” build & package
+name: Kernel CI ReSukiSU — build & package
 
 on:
   push:
@@ -29,12 +29,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "ðŸ“¥ TÃ©lÃ©chargement du boot.img d'origine..."
-          curl -fLo boot-stock.img "${{ env.BOOT_URL }}" || { echo "âŒ Erreur download"; exit 1; }
+          echo "📥 Téléchargement du boot.img d'origine..."
+          curl -fLo boot-stock.img "${{ env.BOOT_URL }}" || { echo "❌ Erreur download"; exit 1; }
 
       - name: Clone Kernel Source
         run: |
-          git clone https://github.com/Albanel22/android_kernel_motorola_sm8250.git -b lineage-23.2 --depth=1 ${{ env.KERNEL_PATH }}
+          git clone https://github.com/Albanel22/Motorola-one-5G-ace_ResukiSu.git -b lineage-23.2 --depth=1 ${{ env.KERNEL_PATH }}
 
       - name: Setup ccache
         uses: actions/cache@v4
@@ -43,29 +43,24 @@ jobs:
           key: ${{ runner.os }}-ccache-resukisu
           restore-keys: ${{ runner.os }}-ccache-
 
-      - name: ðŸš€ IntÃ©gration Officielle & SÃ©curisation de ReSukiSU
+      - name: 🚀 Intégration Officielle & Sécurisation de ReSukiSU
         working-directory: ${{ env.KERNEL_PATH }}
         run: |
           set -e
-          echo "ðŸ“¥ TÃ©lÃ©chargement et intÃ©gration de ReSukiSU..."
+          echo "📥 Téléchargement et intégration de ReSukiSU..."
           
-          # 1. Clonage de ReSukiSU Ã  la racine du noyau selon le guide officiel
           git clone https://github.com/ReSukiSU/ReSukiSU.git resukisu
           
-          # 2. ExÃ©cution du script d'auto-patching officiel
           cd resukisu
           bash patch.sh
           cd ..
 
-          # 3. SÃ‰CURITÃ‰ CONFLITS : Correction adaptative mmap_sem vers mmap_lock (Post-Patch ReSukiSU)
-          echo "ðŸ”§ Correction des structures de mÃ©moire pour Android 11+..."
+          echo "🔧 Correction des structures de mémoire pour Android 11+..."
           sed -i 's/mmap_sem/mmap_lock/g' fs/proc/base.c || true
           sed -i 's/mmap_sem/mmap_lock/g' fs/proc/task_mmu.c || true
 
-          # 4. Injections des Hooks Manuels (PÃ©pites Telegram)
-          echo "ðŸŽ¯ Application des patches de hooks manuels..."
+          echo "🎯 Application des patches de hooks manuels..."
           
-          # Patch 1 : fs/stat.c
           cat << 'EOF' > ksu_stat.patch
           --- a/fs/stat.c
           +++ b/fs/stat.c
@@ -127,10 +122,9 @@ jobs:
            	if (error)
            		return error;
           EOF
-          patch -p1 < ksu_stat.patch || echo "âš ï¸ Warning: patch stat.c dÃ©jÃ  existant ou ignorÃ©."
+          patch -p1 < ksu_stat.patch || echo "⚠️ Warning: patch stat.c déjà existant ou ignoré."
           rm ksu_stat.patch
 
-          # Patch 2 : fs/open.c
           cat << 'EOF' > ksu_open.patch
           --- a/fs/open.c
           +++ b/fs/open.c
@@ -152,10 +146,9 @@ jobs:
            	return do_faccessat(dfd, filename, mode);
            }
           EOF
-          patch -p1 < ksu_open.patch || echo "âš ï¸ Warning: patch open.c dÃ©jÃ  existant ou ignorÃ©."
+          patch -p1 < ksu_open.patch || echo "⚠️ Warning: patch open.c déjà existant ou ignoré."
           rm ksu_open.patch
 
-          # Patch 3 : fs/exec.c
           cat << 'EOF' > ksu_exec.patch
           --- a/fs/exec.c
           +++ b/fs/exec.c
@@ -191,10 +184,9 @@ jobs:
            	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
            }
           EOF
-          patch -p1 < ksu_exec.patch || echo "âš ï¸ Warning: patch exec.c dÃ©jÃ  existant ou ignorÃ©."
+          patch -p1 < ksu_exec.patch || echo "⚠️ Warning: patch exec.c déjà existant ou ignoré."
           rm ksu_exec.patch
 
-          # Patch 4 : kernel/reboot.c
           cat << 'EOF' > ksu_reboot.patch
           --- a/kernel/reboot.c
           +++ b/kernel/reboot.c
@@ -221,10 +213,9 @@ jobs:
            	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
            		return -EPERM;
           EOF
-          patch -p1 < ksu_reboot.patch || echo "âš ï¸ Warning: patch reboot.c dÃ©jÃ  existant ou ignorÃ©."
+          patch -p1 < ksu_reboot.patch || echo "⚠️ Warning: patch reboot.c déjà existant ou ignoré."
           rm ksu_reboot.patch
 
-          # Patch 5 : drivers/input/input.c
           cat << 'EOF' > ksu_input.patch
           --- a/drivers/input/input.c
           +++ b/drivers/input/input.c
@@ -252,10 +243,9 @@ jobs:
            
            		spin_lock_irqsave(&dev->event_lock, flags);
           EOF
-          patch -p1 < ksu_input.patch || echo "âš ï¸ Warning: patch input.c dÃ©jÃ  existant ou ignorÃ©."
+          patch -p1 < ksu_input.patch || echo "⚠️ Warning: patch input.c déjà existant ou ignoré."
           rm ksu_input.patch
 
-          # Patch 6 : kernel/sys.c
           cat << 'EOF' > ksu_sys.patch
           --- a/kernel/sys.c
           +++ b/kernel/sys.c
@@ -281,18 +271,15 @@ jobs:
            	keuid = make_kuid(ns, euid);
            	ksuid = make_kuid(ns, suid);
           EOF
-          patch -p1 < ksu_sys.patch || echo "âš ï¸ Warning: patch sys.c dÃ©jÃ  existant ou ignorÃ©."
+          patch -p1 < ksu_sys.patch || echo "⚠️ Warning: patch sys.c déjà existant ou ignoré."
           rm ksu_sys.patch
 
-          # Patch 7 : security/selinux/selinuxfs.c (Exposition globale de write_op)
-          echo "ðŸ›¡ï¸ Application du patch SELinux write_op..."
-          sed -i 's/static ssize_t (\*write_op\[\])/ssize_t (\*write_op\[\])/g' security/selinux/selinuxfs.c || echo "âš ï¸ Warning: sed sur write_op a Ã©chouÃ©."
+          echo "🛡️ Application du patch SELinux write_op..."
+          sed -i 's/static ssize_t (\*write_op\[\])/ssize_t (\*write_op\[\])/g' security/selinux/selinuxfs.c || echo "⚠️ Warning: sed sur write_op a échoué."
 
-          # Patch 8 : security/selinux/selinuxfs.c (Exposition globale de sel_handle_status_ops)
-          echo "ðŸ›¡ï¸ Application du patch SELinux sel_handle_status_ops..."
-          sed -i 's/static const struct file_operations sel_handle_status_ops/const struct file_operations sel_handle_status_ops/g' security/selinux/selinuxfs.c || echo "âš ï¸ Warning: sed sur sel_handle_status_ops a Ã©chouÃ©."
+          echo "🛡️ Application du patch SELinux sel_handle_status_ops..."
+          sed -i 's/static const struct file_operations sel_handle_status_ops/const struct file_operations sel_handle_status_ops/g' security/selinux/selinuxfs.c || echo "⚠️ Warning: sed sur sel_handle_status_ops a échoué."
 
-          # 5. Injection finale des flags ReSukiSU et Manual Hook dans le defconfig Motorola
           TARGET_DEFCONFIG="arch/arm64/configs/vendor/lito-perf_defconfig"
           {
             echo "CONFIG_RESUKISU=y"
@@ -304,7 +291,7 @@ jobs:
             echo "CONFIG_KSU_MANUAL_HOOK=y"
           } >> "$TARGET_DEFCONFIG"
 
-          echo "âœ… Pipeline d'intÃ©gration blindÃ©e avec succÃ¨s."
+          echo "✅ Pipeline d'intégration blindée avec succès."
 
       - name: Multi-stage Kernel Compilation
         working-directory: ${{ env.KERNEL_PATH }}
@@ -321,10 +308,8 @@ jobs:
           
           cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
           
-          # GÃ©nÃ©ration du .config de base
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
           
-          # Validation stricte des configurations forcÃ©es dans le .config final
           {
             echo "CONFIG_RESUKISU=y"
             echo "CONFIG_RESUKISU_SUS_PATH=y"
@@ -338,11 +323,9 @@ jobs:
           
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
           
-          # Hacks indispensables (Signatures & Dalle Tactile Motorola)
           sed -i 's/if (!check_version(/if (0 \&\& !check_version(/g' kernel/module.c
-          printf "\n/* --- DÃ©but Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(\&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(\&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
+          printf "\n/* --- Début Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(\&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(\&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
           
-          # Compilation
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
 
       - name: Repack & Finalize (Magiskboot)
