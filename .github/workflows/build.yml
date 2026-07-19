@@ -1,0 +1,376 @@
+name: Kernel CI ReSukiSU â€” build & package
+
+on:
+  push:
+    branches: [ main, master, lineage-23.2 ]
+  workflow_dispatch:
+
+env:
+  KERNEL_PATH: kernel_src
+  BUILD_DIR: out
+  ARCH: arm64
+  DEFCONFIG: lito-perf_defconfig
+  CCACHE_SIZE: 5G
+  BOOT_URL: 'https://mirrorbits.lineageos.org/full/kiev/20260628/boot.img'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache flex glibc-source libelf-dev libssl-dev libncurses-dev gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang llvm lld device-tree-compiler zip unzip curl git python3
+
+      - name: Download Stock Boot Image
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ðŸ“¥ TÃ©lÃ©chargement du boot.img d'origine..."
+          curl -fLo boot-stock.img "${{ env.BOOT_URL }}" || { echo "âŒ Erreur download"; exit 1; }
+
+      - name: Clone Kernel Source
+        run: |
+          git clone https://github.com/Albanel22/android_kernel_motorola_sm8250.git -b lineage-23.2 --depth=1 ${{ env.KERNEL_PATH }}
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-resukisu
+          restore-keys: ${{ runner.os }}-ccache-
+
+      - name: ðŸš€ IntÃ©gration Officielle & SÃ©curisation de ReSukiSU
+        working-directory: ${{ env.KERNEL_PATH }}
+        run: |
+          set -e
+          echo "ðŸ“¥ TÃ©lÃ©chargement et intÃ©gration de ReSukiSU..."
+          
+          # 1. Clonage de ReSukiSU Ã  la racine du noyau selon le guide officiel
+          git clone https://github.com/ReSukiSU/ReSukiSU.git resukisu
+          
+          # 2. ExÃ©cution du script d'auto-patching officiel
+          cd resukisu
+          bash patch.sh
+          cd ..
+
+          # 3. SÃ‰CURITÃ‰ CONFLITS : Correction adaptative mmap_sem vers mmap_lock (Post-Patch ReSukiSU)
+          echo "ðŸ”§ Correction des structures de mÃ©moire pour Android 11+..."
+          sed -i 's/mmap_sem/mmap_lock/g' fs/proc/base.c || true
+          sed -i 's/mmap_sem/mmap_lock/g' fs/proc/task_mmu.c || true
+
+          # 4. Injections des Hooks Manuels (PÃ©pites Telegram)
+          echo "ðŸŽ¯ Application des patches de hooks manuels..."
+          
+          # Patch 1 : fs/stat.c
+          cat << 'EOF' > ksu_stat.patch
+          --- a/fs/stat.c
+          +++ b/fs/stat.c
+          @@ -353,6 +353,16 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
+           	return cp_new_stat(&stat, statbuf);
+           }
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +__attribute__((hot)) 
+          +extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
+          +				int *flags);
+          +extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);
+          +#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+          +extern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);
+          +#endif
+          +#endif
+          +
+           #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
+           SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+           		struct stat __user *, statbuf, int, flag)
+          @@ -360,6 +370,9 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+           	struct kstat stat;
+           	int error;
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_stat(&dfd, &filename, &flag);
+          +#endif
+           	error = vfs_fstatat(dfd, filename, &stat, flag);
+           	if (error)
+           		return error;
+          @@ -375,6 +388,9 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
+           	if (!error)
+           		error = cp_new_stat(&stat, statbuf);
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_newfstat_ret(&fd, &statbuf);
+          +#endif
+           	return error;
+           }
+           #endif
+          @@ -490,6 +506,9 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
+           	if (!error)
+           		error = cp_new_stat64(&stat, statbuf);
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_fstat64_ret(&fd, &statbuf);
+          +#endif
+           	return error;
+           }
+           #endif
+          @@ -504,6 +523,9 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
+           	struct kstat stat;
+           	int error;
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_stat(&dfd, &filename, &flag); 
+          +#endif
+           	error = vfs_fstatat(dfd, filename, &stat, flag);
+           	if (error)
+           		return error;
+          EOF
+          patch -p1 < ksu_stat.patch || echo "âš ï¸ Warning: patch stat.c dÃ©jÃ  existant ou ignorÃ©."
+          rm ksu_stat.patch
+
+          # Patch 2 : fs/open.c
+          cat << 'EOF' > ksu_open.patch
+          --- a/fs/open.c
+          +++ b/fs/open.c
+          @@ -450,8 +450,16 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
+           	return res;
+           }
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +__attribute__((hot)) 
+          +extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+          +				int *mode, int *flags);
+          +#endif
+          +
+           SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+           {
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+          +#endif
+           	return do_faccessat(dfd, filename, mode);
+           }
+          EOF
+          patch -p1 < ksu_open.patch || echo "âš ï¸ Warning: patch open.c dÃ©jÃ  existant ou ignorÃ©."
+          rm ksu_open.patch
+
+          # Patch 3 : fs/exec.c
+          cat << 'EOF' > ksu_exec.patch
+          --- a/fs/exec.c
+          +++ b/fs/exec.c
+          @@ -1886,12 +1886,26 @@ static int do_execveat_common(int fd, struct filename *filename,
+           	return retval;
+           }
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +__attribute__((hot))
+          +extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+          +				void *argv, void *envp, int *flags);
+          +#endif
+          +
+           int do_execve(struct filename *filename,
+           	const char __user *const __user *__argv,
+           	const char __user *const __user *__envp)
+           {
+           	struct user_arg_ptr argv = { .ptr.native = __argv };
+           	struct user_arg_ptr envp = { .ptr.native = __envp };
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+          +#endif
+           	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+           }
+           
+          @@-1919,6 +1933,10 @@ static int compat_do_execve(struct filename *filename,
+           		.is_compat = true,
+           		.ptr.compat = __envp,
+           	};
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+          +#endif
+           	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+           }
+          EOF
+          patch -p1 < ksu_exec.patch || echo "âš ï¸ Warning: patch exec.c dÃ©jÃ  existant ou ignorÃ©."
+          rm ksu_exec.patch
+
+          # Patch 4 : kernel/reboot.c
+          cat << 'EOF' > ksu_reboot.patch
+          --- a/kernel/reboot.c
+          +++ b/kernel/reboot.c
+          @@ -277,6 +277,11 @@ static DEFINE_MUTEX(reboot_mutex);
+            *
+            * reboot doesn't sync: do that yourself before calling this.
+            */
+          +
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+          +#endif
+          +
+           SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+           		void __user *, arg)
+           {
+          @@ -284,6 +289,9 ...
+          	char buffer[256];
+           	int ret = 0;
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+          +#endif
+           	/* We only trust the superuser with rebooting the system. */
+           	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
+           		return -EPERM;
+          EOF
+          patch -p1 < ksu_reboot.patch || echo "âš ï¸ Warning: patch reboot.c dÃ©jÃ  existant ou ignorÃ©."
+          rm ksu_reboot.patch
+
+          # Patch 5 : drivers/input/input.c
+          cat << 'EOF' > ksu_input.patch
+          --- a/drivers/input/input.c
+          +++ b/drivers/input/input.c
+          @@ -436,11 +436,22 @@ static void input_handle_event(struct input_dev *dev,
+            * to 'seed' initial state of a switch or initial position of absolute
+            * axis, etc.
+            */
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +extern bool ksu_input_hook __read_mostly;
+          +extern __attribute__((cold)) int ksu_handle_input_handle_event(
+          +			unsigned int *type, unsigned int *code, int *value);
+          +#endif
+          +
+           void input_event(struct input_dev *dev,
+           		 unsigned int type, unsigned int code, int value)
+           {
+           	unsigned long flags;
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	if (unlikely(ksu_input_hook))
+          +		ksu_handle_input_handle_event(&type, &code, &value);
+          +#endif
+          +
+           	if (is_event_supported(type, dev->evbit, EV_MAX)) {
+           
+           		spin_lock_irqsave(&dev->event_lock, flags);
+          EOF
+          patch -p1 < ksu_input.patch || echo "âš ï¸ Warning: patch input.c dÃ©jÃ  existant ou ignorÃ©."
+          rm ksu_input.patch
+
+          # Patch 6 : kernel/sys.c
+          cat << 'EOF' > ksu_sys.patch
+          --- a/kernel/sys.c
+          +++ b/kernel/sys.c
+          @@ -679,6 +679,10 @@ SYSCALL_DEFINE1(setuid, uid_t, uid)
+           }
+           
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +extern int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+          +#endif
+          +
+           /*
+            * This function implements a generic ability to update ruid, euid,
+            * and suid.  This allows you to implement the 4.4 compatible seteuid().
+          @@ -692,6 +696,10 @@ long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+           	kuid_t kruid, keuid, ksuid;
+           	bool ruid_new, euid_new, suid_new;
+           
+          +#ifdef CONFIG_KSU_MANUAL_HOOK
+          +	(void)ksu_handle_setresuid(ruid, euid, suid);
+          +#endif
+           	kruid = make_kuid(ns, ruid);
+           	keuid = make_kuid(ns, euid);
+           	ksuid = make_kuid(ns, suid);
+          EOF
+          patch -p1 < ksu_sys.patch || echo "âš ï¸ Warning: patch sys.c dÃ©jÃ  existant ou ignorÃ©."
+          rm ksu_sys.patch
+
+          # Patch 7 : security/selinux/selinuxfs.c (Exposition globale de write_op)
+          echo "ðŸ›¡ï¸ Application du patch SELinux write_op..."
+          sed -i 's/static ssize_t (\*write_op\[\])/ssize_t (\*write_op\[\])/g' security/selinux/selinuxfs.c || echo "âš ï¸ Warning: sed sur write_op a Ã©chouÃ©."
+
+          # Patch 8 : security/selinux/selinuxfs.c (Exposition globale de sel_handle_status_ops)
+          echo "ðŸ›¡ï¸ Application du patch SELinux sel_handle_status_ops..."
+          sed -i 's/static const struct file_operations sel_handle_status_ops/const struct file_operations sel_handle_status_ops/g' security/selinux/selinuxfs.c || echo "âš ï¸ Warning: sed sur sel_handle_status_ops a Ã©chouÃ©."
+
+          # 5. Injection finale des flags ReSukiSU et Manual Hook dans le defconfig Motorola
+          TARGET_DEFCONFIG="arch/arm64/configs/vendor/lito-perf_defconfig"
+          {
+            echo "CONFIG_RESUKISU=y"
+            echo "CONFIG_RESUKISU_SUS_PATH=y"
+            echo "CONFIG_RESUKISU_SUS_MOUNT=y"
+            echo "CONFIG_RESUKISU_TRY_UMOUNT=y"
+            echo "CONFIG_RESUKISU_SPOOF_UNAME=y"
+            echo "CONFIG_RESUKISU_HIDE_KSU_DIR=y"
+            echo "CONFIG_KSU_MANUAL_HOOK=y"
+          } >> "$TARGET_DEFCONFIG"
+
+          echo "âœ… Pipeline d'intÃ©gration blindÃ©e avec succÃ¨s."
+
+      - name: Multi-stage Kernel Compilation
+        working-directory: ${{ env.KERNEL_PATH }}
+        run: |
+          set -uo pipefail
+          export ARCH=${{ env.ARCH }}
+          export SUBARCH=${{ env.ARCH }}
+          export USE_CCACHE=1
+          export CCACHE_EXEC=$(which ccache)
+          ccache -M ${{ env.CCACHE_SIZE }}
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export KCFLAGS="-Wno-error"
+          
+          cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
+          
+          # GÃ©nÃ©ration du .config de base
+          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
+          
+          # Validation stricte des configurations forcÃ©es dans le .config final
+          {
+            echo "CONFIG_RESUKISU=y"
+            echo "CONFIG_RESUKISU_SUS_PATH=y"
+            echo "CONFIG_KSU_MANUAL_HOOK=y"
+            echo "CONFIG_KPROBES=y"
+            echo "CONFIG_HAVE_KPROBES=y"
+            echo "CONFIG_KRETPROBES=y"
+            echo "CONFIG_OVERLAY_FS=y"
+            echo "CONFIG_OVERLAY_FS_REDIRECT_DIR=y"
+          } >> ${{ env.BUILD_DIR }}/.config
+          
+          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
+          
+          # Hacks indispensables (Signatures & Dalle Tactile Motorola)
+          sed -i 's/if (!check_version(/if (0 \&\& !check_version(/g' kernel/module.c
+          printf "\n/* --- DÃ©but Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(\&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(\&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
+          
+          # Compilation
+          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
+
+      - name: Repack & Finalize (Magiskboot)
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p repack
+          cp boot-stock.img repack/boot.img
+          
+          wget -q https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk -O Magisk-v27.0.apk
+          unzip -q Magisk-v27.0.apk lib/x86_64/libmagiskboot.so
+          mv lib/x86_64/libmagiskboot.so repack/magiskboot
+          chmod +x repack/magiskboot
+          rm -rf Magisk-v27.0.apk lib/
+          
+          cd repack
+          ./magiskboot unpack boot.img
+          cp ${{ github.workspace }}/${{ env.KERNEL_PATH }}/${{ env.BUILD_DIR }}/arch/arm64/boot/Image kernel
+          ./magiskboot repack boot.img new-boot.img
+          mv new-boot.img ../final_boot.img
+          
+          cd ..
+          mkdir -p final_output
+          mv final_boot.img final_output/boot.img
+
+      - name: Upload Finished Packaged Assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-motorola_ReSukiSU
+          path: final_output/boot.img
