@@ -105,7 +105,7 @@ jobs:
           
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
           
-          # 2. ⚡ CHIRURGIE ULTRA-PROPRE PAR PYTHON (Inspirée du build 266) ⚡
+          # 2. ⚡ SCRIPT PYTHON (RÈGLE L'ERREUR DE COMPILATION) ⚡
           echo "🚀 Injection chirurgicale des hooks ReSukiSU sur fs/open.c..."
           python3 -c '
           import os
@@ -116,8 +116,8 @@ jobs:
           with open("fs/open.c", "r") as f:
               orig_content = f.read()
 
-          # Injection de l"en-tête ReSukiSU (Le script setup.sh clone sous drivers/kernelsu)
-          headers = "#include <../drivers/kernelsu/kernel/ksu.h>\n"
+          # Utilisation de srctree pour garantir que le compilateur trouve le chemin absolu des sources
+          headers = "#include <srctree/drivers/kernelsu/kernel/ksu.h>\n"
           new_content = headers + orig_content
 
           # Localisation de do_faccessat pour y poser le hook manuel requis
@@ -136,33 +136,32 @@ jobs:
                       hook_inj = "#ifdef CONFIG_KSU_MANUAL_HOOK\n\textern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n\tksu_handle_faccessat(&dfd, &filename, &mode, flags_null);\n#endif\n\n\t"
                       new_content = new_content[:idx_hook] + hook_inj + new_content[idx_hook:]
 
-          # Synchronisation forcée sur la racine et sur le dossier out/
+          # Écriture du fichier source
           with open("fs/open.c", "w") as f:
               f.write(new_content)
           
+          # Copie de sécurité immédiate dans le dossier out/ pour éviter les conflits de génération
           out_open_c = os.path.join("${{ env.BUILD_DIR }}", "fs/open.c")
           if os.path.exists(os.path.dirname(out_open_c)):
               with open(out_open_c, "w") as f:
                   f.write(new_content)
 
-          print("✅ fs/open.c patché avec succès pour ReSukiSU.")
+          print("✅ fs/open.c patché avec succès avec le préfixe srctree.")
           '
 
-          # 3. Application du reste des hooks manuels requis par ReSukiSU (via patchs légers)
-          # [Ici s'appliquent les autres fichiers du noyau pour les hooks manuels natifs]
-          # Le nettoyage global des chaînes "kernelSU" garantit la compatibilité du dossier drivers/kernelsu
+          # 3. Nettoyage global des chaînes résiduelles
           find . -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\.\.\/kernelSU\/ksu\.h/\.\.\/drivers\/kernelsu\/kernel\/ksu\.h/g' {} + || true
           find . -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/kernelSU/kernelsu/g' {} + || true
 
-          # 4. 🎯 PROTECTION DU TACTILE MOTOROLA (Garantie à 100% issue de tes 266 builds)
+          # 4. 🎯 PATCH DU TACTILE MOTOROLA (PROTÉGÉ À 100%)
           echo "🛠️ Application des contournements matériels et signatures..."
           sed -i 's/if (!check_version(/if (0 \&\& !check_version(/g' kernel/module.c
           
           printf "\n/* --- Début Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
           
-          # 5. Lancement final du build
+          # 5. Lancement final de la compilation
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
-
+          
       - name: Repack & Finalize (Magiskboot)
         working-directory: ${{ github.workspace }}
         shell: bash
