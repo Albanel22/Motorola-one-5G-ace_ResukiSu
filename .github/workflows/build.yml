@@ -47,13 +47,14 @@ jobs:
         working-directory: ${{ env.KERNEL_PATH }}
         run: |
           set -e
-          echo "📥 Téléchargement et intégration de ReSukiSU..."
+          echo "📥 Téléchargement du script officiel ReSukiSU..."
           
-          git clone https://github.com/ReSukiSU/ReSukiSU.git resukisu
+          # 1. On récupère le script setup.sh directement à la racine du noyau
+          curl -fLo setup.sh https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh
+          chmod +x setup.sh
           
-          cd resukisu
-          bash patch.sh
-          cd ..
+          # 2. On lance le script officiel (il va cloner et configurer les dossiers Kconfig/Makefile lui-même)
+          bash setup.sh
 
           echo "🔧 Correction des structures de mémoire pour Android 11+..."
           sed -i 's/mmap_sem/mmap_lock/g' fs/proc/base.c || true
@@ -292,7 +293,7 @@ jobs:
           } >> "$TARGET_DEFCONFIG"
 
           echo "✅ Pipeline d'intégration blindée avec succès."
-
+          
       - name: Multi-stage Kernel Compilation
         working-directory: ${{ env.KERNEL_PATH }}
         run: |
