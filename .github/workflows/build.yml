@@ -11,7 +11,7 @@ env:
   ARCH: arm64
   DEFCONFIG: lito-perf_defconfig
   CCACHE_SIZE: 5G
-  BOOT_URL: 'https://mirrorbits.lineageos.org/full/kiev/20260705/boot.img'
+  BOOT_URL: 'https://mirrorbits.lineageos.org/full/kiev/20260628/boot.img'
 
 jobs:
   build:
@@ -55,16 +55,16 @@ jobs:
           sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' drivers/Makefile || true
           sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' drivers/Kconfig || true
 
-          # 2. 📥 Récupération des fichiers SUSFS 4.19 officiels via GitHub Mirror
-          echo "📥 Téléchargement direct de l'infrastructure SUSFS v4.19..."
+          # 2. 📥 Récupération des fichiers SUSFS v4.19 via le miroir GitHub public
+          echo "📥 Téléchargement direct des sources SUSFS..."
           mkdir -p include/linux
           
           curl -LSs "https://raw.githubusercontent.com/gki-susfs/susfs4linux/gki-android-4.19/fs/susfs.c" -o fs/susfs.c
           curl -LSs "https://raw.githubusercontent.com/gki-susfs/susfs4linux/gki-android-4.19/include/linux/susfs.h" -o include/linux/susfs.h
 
-          # Vérification de sécurité pour s'assurer que les fichiers ne sont pas vides
+          # Vérification de sécurité pour s'assurer que le téléchargement a fonctionné
           if [ ! -s fs/susfs.c ] || [ ! -s include/linux/susfs.h ]; then
-            echo "❌ Échec du téléchargement des fichiers SUSFS"
+            echo "❌ Échec du téléchargement des fichiers SUSFS (Vérifie les URLs)"
             exit 1
           fi
           
