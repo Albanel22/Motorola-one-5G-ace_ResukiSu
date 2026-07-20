@@ -84,13 +84,18 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
-          # 1. 🧹 NETTOYAGE ET INSTALLATION OFFICIELLE (Suivi strict du conseil du dev)
+          # 1. 🧹 NETTOYAGE ET INSTALLATION OFFICIELLE
           echo "🧹 Nettoyage des anciens résidus de KernelSU..."
-          rm -rf KernelSU drivers/kernelsu
+          rm -rf KernelSU kernelSU drivers/kernelsu
           git checkout fs/open.c
           
           echo "🚀 Téléchargement et intégration de ReSukiSU..."
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+          
+          # 🔗 LE FIX : On crée des liens pour réparer le chemin exact attendu par le hook (#include "../kernelSU/ksu.h")
+          echo "🔗 Création des redirections de dossiers..."
+          ln -sfn drivers/kernelsu kernelSU
+          ln -sfn drivers/kernelsu KernelSU
           
           # Préparation du defconfig
           cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
@@ -98,7 +103,7 @@ jobs:
           # 2. Génération du .config de base
           make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
           
-          # 3. Activation des flags ReSukiSU de base (sans forcer le SUSFS manuel puisque déjà patché)
+          # 3. Activation des flags ReSukiSU de base
           {
             echo "CONFIG_KSU=y"
             echo "CONFIG_KSU_MANUAL_HOOK=y"
