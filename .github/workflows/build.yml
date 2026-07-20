@@ -109,7 +109,19 @@ jobs:
           
           make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
           
-          # 2. ⚡ INJECTION DES HOOKS (fs/open.c) ⚡
+          # 📦 COPIE SÉCURISÉE DANS LES DOSSIERS STANDARDS DU NOYAU
+          echo "📦 Raccordement des headers ReSukiSU dans l'arborescence standard..."
+          mkdir -p include/linux
+          if [ -f "KernelSU/kernel/ksu.h" ]; then
+              cp KernelSU/kernel/ksu.h include/linux/ksu.h
+          elif [ -f "drivers/kernelsu/kernel/ksu.h" ]; then
+              cp drivers/kernelsu/kernel/ksu.h include/linux/ksu.h
+          else
+              echo "⚠️ ksu.h introuvable, création d'un en-tête temporaire pour éviter le crash"
+              touch include/linux/ksu.h
+          fi
+          
+          # 2. ⚡ INJECTION DES HOOKS (fs/open.c) via <linux/ksu.h> ⚡
           echo "🚀 Restauration et patch propre de fs/open.c..."
           git checkout fs/open.c
           
@@ -117,7 +129,8 @@ jobs:
           with open("fs/open.c", "r") as f:
               orig_content = f.read()
 
-          headers = "#include <ksu.h>\n"
+          # L'en-tête est maintenant dans le dossier d'inclusion global par excellence
+          headers = "#include <linux/ksu.h>\n"
           new_content = headers + orig_content
 
           target_func = "long do_faccessat(int dfd, const char __user *filename, int mode)"
@@ -135,7 +148,7 @@ jobs:
 
           with open("fs/open.c", "w") as f:
               f.write(new_content)
-          print("✅ fs/open.c mis à jour localement.")
+          print("✅ fs/open.c mis à jour localement avec <linux/ksu.h>.")
           '
 
           # 3. 🎯 SÉCURISATION DU PATCH TACTILE MOTOROLA
@@ -144,9 +157,9 @@ jobs:
           
           printf "\n/* --- Début Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
           
-          # 4. Lancement de la compilation de l'image avec injection stricte des dossiers d'inclusion
-          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="-Wno-error -I$(pwd)/KernelSU/kernel -I$(pwd)/drivers/kernelsu/kernel" -j$(nproc) Image   
-
+          # 4. Lancement de la compilation de l'image (sans arguments instables)
+          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="-Wno-error" -j$(nproc) Image
+          
       - name: Repack & Finalize (Magiskboot)
         working-directory: ${{ github.workspace }}
         shell: bash
