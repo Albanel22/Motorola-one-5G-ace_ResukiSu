@@ -1,8 +1,8 @@
-name: Kernel CI ReSukiSU — build & package
+name: Kernel CI — build & package (SUSFS ONLY)
 
 on:
   push:
-    branches: [ main, master, lineage-23.2 ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 env:
@@ -11,7 +11,7 @@ env:
   ARCH: arm64
   DEFCONFIG: lito-perf_defconfig
   CCACHE_SIZE: 5G
-  BOOT_URL: 'https://mirrorbits.lineageos.org/full/kiev/20260705/boot.img'
+  BOOT_URL: 'https://mirrorbits.lineageos.org/full/kiev/20260628/boot.img'
 
 jobs:
   build:
@@ -29,48 +29,63 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "📥 Téléchargement du boot.img d'origine (LineageOS 23.2)..."
-          curl -fLo boot-stock.img "${{ env.BOOT_URL }}" || { echo "❌ Erreur download boot.img"; exit 1; }
+          echo "📥 Téléchargement du boot.img..."
+          curl -fLo boot-stock.img "${{ env.BOOT_URL }}" || { echo "❌ Erreur download"; exit 1; }
 
       - name: Clone Kernel Source
         run: |
-          git clone https://github.com/Albanel22/Motorola-one-5G-ace_ResukiSu.git -b lineage-23.2 --depth=1 ${{ env.KERNEL_PATH }}
+          git clone https://github.com/Albanel22/android_kernel_motorola_sm8250.git -b lineage-23.2 --depth=1 ${{ env.KERNEL_PATH }}
 
       - name: Setup ccache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-resukisu
+          key: ${{ runner.os }}-ccache-kernel
           restore-keys: ${{ runner.os }}-ccache-
 
-      - name: 📂 Injection & Sécurisation de ReSukiSU
+      - name: 📂 Extraction et Intégration Pure de SUSFS
         working-directory: ${{ env.KERNEL_PATH }}
         run: |
           set -e
-          echo "📥 Initialisation de ReSukiSU via le script officiel..."
-          
-          # 1. Récupération et exécution du setup ReSukiSU officiel
-          curl -fLo setup.sh https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh
-          chmod +x setup.sh
-          bash setup.sh
 
-          # 2. Sécurisation adaptative mmap_sem vers mmap_lock (Spécifique Android 11+)
+          # 🧹 Nettoyage de toute trace résiduelle de KernelSU
+          echo "🧹 Purge absolue des références à KernelSU..."
+          sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' Makefile || true
+          rm -rf drivers/kernelsu || true
+          sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' drivers/Makefile || true
+          sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' drivers/Kconfig || true
+
+          # 📥 Clonage du dépôt officiel SUSFS (branche 4.19 GKI qui s'adapte aux VFS récents)
+          git clone https://gitlab.com/khizis/susfs4linux.git -b gki-android-4.19 susfs_src
+          
+          # Copie des fichiers d'infrastructure de SUSFS dans l'arborescence standard
+          echo "📦 Injection des fichiers d'en-tête et sources de SUSFS..."
+          cp susfs_src/fs/susfs.c fs/
+          cp -r susfs_src/include/linux/* include/linux/
+          
+          # Liaison de susfs.o au système de build de fs/
+          if ! grep -q "susfs.o" fs/Makefile; then 
+            echo 'obj-$(CONFIG_SUSFS) += susfs.o' >> fs/Makefile
+          fi
+
+          rm -rf susfs_src
+
+          # Correction adaptative mmap_sem vers mmap_lock (Ton correctif stable du build 266)
           sed -i 's/mmap_sem/mmap_lock/g' fs/proc/base.c || true
           sed -i 's/mmap_sem/mmap_lock/g' fs/proc/task_mmu.c || true
 
-          # 3. Pré-injection des flags requis par ReSukiSU dans le defconfig
+          # Pré-injection de la configuration SUSFS directement dans ton defconfig Motorola
           TARGET_DEFCONFIG="arch/arm64/configs/vendor/lito-perf_defconfig"
           {
-            echo "CONFIG_RESUKISU=y"
-            echo "CONFIG_RESUKISU_SUS_PATH=y"
-            echo "CONFIG_RESUKISU_SUS_MOUNT=y"
-            echo "CONFIG_RESUKISU_TRY_UMOUNT=y"
-            echo "CONFIG_RESUKISU_SPOOF_UNAME=y"
-            echo "CONFIG_RESUKISU_HIDE_KSU_DIR=y"
-            echo "CONFIG_KSU_MANUAL_HOOK=y"
+            echo "CONFIG_SUSFS=y"
+            echo "CONFIG_SUSFS_SUS_PATH=y"
+            echo "CONFIG_SUSFS_SUS_MOUNT=y"
+            echo "CONFIG_SUSFS_TRY_UMOUNT=y"
+            echo "CONFIG_SUSFS_SPOOF_UNAME=y"
+            echo "CONFIG_SUSFS_HIDE_KSU_DIR=y"
           } >> "$TARGET_DEFCONFIG"
 
-          echo "✅ Phase de préparation ReSukiSU achevée."
+          echo "✅ Phase d'ajustement SUSFS achevée."
 
       - name: Multi-stage Kernel Compilation
         working-directory: ${{ env.KERNEL_PATH }}
@@ -83,62 +98,87 @@ jobs:
           ccache -M ${{ env.CCACHE_SIZE }}
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export KCFLAGS="-Wno-error"
           
-          # 1. 🧹 NETTOYAGE COMPLET
-          echo "🧹 Nettoyage des résidus..."
-          rm -rf KernelSU kernelSU drivers/kernelsu susfs4linux
-          git checkout fs/open.c fs/Makefile fs/read_write.c include/linux/fs.h
-          
-          # 2. 🧬 SÉQUENCE DE PATCH SUSFS (Pour noyau 4.19)
-          echo "📥 Clonage de susfs4linux..."
-          git clone https://gitlab.com/khizis/susfs4linux.git -b gki-android-4.19 ${{ github.workspace }}/susfs4linux
-          
-          echo "Apply Patchs SUSFS..."
-          # Copie des fichiers SUSFS directement dans l'arbre du noyau
-          cp ${{ github.workspace }}/susfs4linux/fs/susfs.c fs/
-          cp ${{ github.workspace }}/susfs4linux/include/linux/susfs.h include/linux/
-          
-          # Application des patchs sur les fichiers du système de fichiers (VFS)
-          # Si les patchs automatiques échouent, on applique les modifications via sed/python de manière sécurisée
-          echo "Injections des hooks SUSFS..."
-          sed -i '/obj-y/s/$/ susfs.o/' fs/Makefile
-          
-          # 3. 🚀 SÉQUENCE RESUKISU
-          echo "🚀 Téléchargement et intégration de ReSukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
-          
-          # Correction immédiate de la casse pour fs/open.c (le fameux ../kernelSU/ksu.h)
-          ln -sfn $(pwd)/drivers/kernelsu $(pwd)/kernelSU
-          ln -sfn $(pwd)/drivers/kernelsu $(pwd)/fs/kernelSU
-          
-          # Préparation du defconfig
           cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
           
-          # 4. Génération et configuration du .config avec SUSFS actif !
-          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
+          # 1. Génération de la base .config
+          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
           
+          # Forçage strict des configurations requises pour faire vivre SUSFS
           {
-            echo "CONFIG_KSU=y"
-            echo "CONFIG_KSU_MANUAL_HOOK=y"
-            echo "CONFIG_KSU_SUSFS=y"
             echo "CONFIG_SUSFS=y"
-            echo "CONFIG_RESUKISU=y"
-            echo "CONFIG_RESUKISU_SUS_PATH=y"
-            echo "CONFIG_RESUKISU_SUS_MOUNT=y"
-          } >> .config
+            echo "CONFIG_SUSFS_SUS_PATH=y"
+            echo "CONFIG_OVERLAY_FS=y"
+            echo "CONFIG_OVERLAY_FS_REDIRECT_DIR=y"
+          } >> ${{ env.BUILD_DIR }}/.config
           
-          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
+          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
           
-          # 5. 🎯 SAUVEGARDE ET PROTECTION DU TACTILE MOTOROLA
-          echo "🛠️ Application des contournements matériels et signatures..."
+          # 2. ⚡ CHIRURGIE NUCLÉAIRE SUSFS (SANS KERNELSU) ⚡
+          echo "🚀 Injection des hooks SUSFS sur fs/open.c..."
+          python3 -c '
+          import os
+
+          os.system("git checkout fs/open.c")
+
+          with open("fs/open.c", "r") as f:
+              orig_content = f.read()
+
+          # Inclusion stricte de l’en-tête SUSFS sans aucun ksu.h
+          headers = "#ifdef CONFIG_SUSFS\n#include <linux/susfs.h>\n#endif\n"
+          new_content = headers + orig_content
+
+          target_func = "long do_faccessat(int dfd, const char __user *filename, int mode)"
+          idx = new_content.find(target_func)
+          if idx != -1:
+              brace_idx = new_content.find("{", idx)
+              if brace_idx != -1:
+                  vars_inj = "\n#ifdef CONFIG_SUSFS_SUS_PATH\n\tstruct filename *fname;\n\tint status;\n\tint error;\n#endif\n"
+                  new_content = new_content[:brace_idx+1] + vars_inj + new_content[brace_idx+1:]
+                  
+                  idx_hook = new_content.find("if (mode & ~S_IRWXO)", brace_idx)
+                  if idx_hook != -1:
+                      hook_inj = "#ifdef CONFIG_SUSFS_SUS_PATH\n\tfname = getname_safe(filename);\n\tstatus = susfs_sus_path_by_filename(fname, &error, SYSCALL_FAMILY_ALL_ENOENT);\n\tputname_safe(fname);\n\tif (status) {\n\t\treturn error;\n\t}\n#endif\n\n\t"
+                      new_content = new_content[:idx_hook] + hook_inj + new_content[idx_hook:]
+
+          with open("fs/open.c", "w") as f:
+              f.write(new_content)
+          
+          out_open_c = os.path.join("${{ env.BUILD_DIR }}", "fs/open.c")
+          if os.path.exists(os.path.dirname(out_open_c)):
+              os.makedirs(os.path.dirname(out_open_c), exist_ok=True)
+              with open(out_open_c, "w") as f:
+                  f.write(new_content)
+
+          print("✅ Hooks SUSFS appliqués de manière isolée.")
+
+          # Blindage de fs/proc/task_mmu.c (comme dans le build 266)
+          def fix_task_mmu(filepath):
+              if os.path.exists(filepath):
+                  with open(filepath, "r") as f: content = f.read()
+                  if "SUSFS_MAX_LEN_PATHNAME" not in content:
+                      safety_headers = (
+                          "#define CONFIG_SUSFS 1\n"
+                          "#include <linux/susfs.h>\n"
+                          "#ifndef SUSFS_MAX_LEN_PATHNAME\n"
+                          "#define SUSFS_MAX_LEN_PATHNAME 512\n"
+                          "#endif\n"
+                      )
+                      content = safety_headers + content
+                      with open(filepath, "w") as f: f.write(content)
+          fix_task_mmu("fs/proc/task_mmu.c")
+          fix_task_mmu(os.path.join("${{ env.BUILD_DIR }}", "fs/proc/task_mmu.c"))
+          '
+
+          # Hacks de contournement matériels stables (Signatures & Tactile)
           sed -i 's/if (!check_version(/if (0 \&\& !check_version(/g' kernel/module.c
-          
           printf "\n/* --- Début Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
           
-          # 6. Lancement de la compilation
-          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="-Wno-error" -j$(nproc) Image
-          
-      - name: Repack & Finalize (Magiskboot)
+          # 3. Lancement de la compilation
+          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
+
+      - name: Repack & Finalize
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
@@ -154,7 +194,7 @@ jobs:
           
           cd repack
           ./magiskboot unpack boot.img
-          cp ${{ github.workspace }}/${{ env.KERNEL_PATH }}/arch/arm64/boot/Image kernel
+          cp ${{ github.workspace }}/${{ env.KERNEL_PATH }}/${{ env.BUILD_DIR }}/arch/arm64/boot/Image kernel
           ./magiskboot repack boot.img new-boot.img
           mv new-boot.img ../final_boot.img
           
@@ -165,5 +205,5 @@ jobs:
       - name: Upload Finished Packaged Assets
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-motorola_ReSukiSU
+          name: kernel-motorola_final
           path: final_output/boot.img
