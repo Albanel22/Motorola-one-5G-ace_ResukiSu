@@ -86,9 +86,16 @@ jobs:
           export KCFLAGS="-Wno-error"
           
           cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
-          mkdir -p ${{ env.BUILD_DIR }}/drivers/kernelsu/kernel
           
-          # 1. Génération de la base .config
+          # 1. Crée le dossier de build à l'avance
+          mkdir -p ${{ env.BUILD_DIR }}
+          
+          # 🔗 CRÉATION DES LIENS SYMBOLIQUES ABSOLUS (Force la redirection vers les vraies sources)
+          ln -sfn $(pwd)/drivers/kernelsu ${{ env.BUILD_DIR }}/drivers/kernelsu
+          ln -sfn $(pwd)/drivers/kernelsu $(pwd)/KernelSU
+          ln -sfn $(pwd)/drivers/kernelsu ${{ env.BUILD_DIR }}/KernelSU
+          
+          # Génération de la base .config
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
           
           # Forçage des configurations requises dans le .config généré
@@ -105,48 +112,43 @@ jobs:
           
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
           
-          # 2. ⚡ SCRIPT PYTHON (RÈGLE L'ERREUR DE COMPILATION) ⚡
+          # 2. ⚡ SCRIPT PYTHON ALLÉGÉ ET SÉCURISÉ ⚡
           echo "🚀 Injection chirurgicale des hooks ReSukiSU sur fs/open.c..."
           python3 -c '
           import os
 
-          # Restauration complète pour repartir sur un fichier propre d"origine
           os.system("git checkout fs/open.c")
 
           with open("fs/open.c", "r") as f:
               orig_content = f.read()
 
-          # Inclusion directe : Kbuild résout automatiquement "drivers/..." à partir de la racine des sources
-          headers = "#include \"drivers/kernelsu/kernel/ksu.h\"\n"
+          # On repasse sur un chemin relatif classique qui remontera proprement grâce au lien symbolique
+          headers = "#include \"../drivers/kernelsu/kernel/ksu.h\"\n"
           new_content = headers + orig_content
 
-          # Localisation de do_faccessat pour y poser le hook manuel requis
           target_func = "long do_faccessat(int dfd, const char __user *filename, int mode)"
           idx = new_content.find(target_func)
           if idx != -1:
               brace_idx = new_content.find("{", idx)
               if brace_idx != -1:
-                  # Déclaration des variables au début de la fonction
                   vars_inj = "\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tint *flags_null = NULL;\n#endif\n"
                   new_content = new_content[:brace_idx+1] + vars_inj + new_content[brace_idx+1:]
                   
-                  # Insertion du hook manuel juste avant la vérification du mode
                   idx_hook = new_content.find("if (mode & ~S_IRWXO)", brace_idx)
                   if idx_hook != -1:
                       hook_inj = "#ifdef CONFIG_KSU_MANUAL_HOOK\n\textern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n\tksu_handle_faccessat(&dfd, &filename, &mode, flags_null);\n#endif\n\n\t"
                       new_content = new_content[:idx_hook] + hook_inj + new_content[idx_hook:]
 
-          # Écriture du fichier source
           with open("fs/open.c", "w") as f:
               f.write(new_content)
           
-          # Copie de sécurité immédiate dans le dossier out/ pour éviter les conflits de génération
+          # On s"assure que la structure existe dans out/ et on y pose le fichier
           out_open_c = os.path.join("${{ env.BUILD_DIR }}", "fs/open.c")
-          if os.path.exists(os.path.dirname(out_open_c)):
-              with open(out_open_c, "w") as f:
-                  f.write(new_content)
+          os.makedirs(os.path.dirname(out_open_c), exist_ok=True)
+          with open(out_open_c, "w") as f:
+              f.write(new_content)
 
-          print("✅ fs/open.c patché avec succès.")
+          print("✅ fs/open.c synchronisé avec succès.")
           '
 
           # 3. Nettoyage global des chaînes résiduelles
@@ -161,6 +163,7 @@ jobs:
           
           # 5. Lancement final de la compilation
           make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
+
           
       - name: Repack & Finalize (Magiskboot)
         working-directory: ${{ github.workspace }}
