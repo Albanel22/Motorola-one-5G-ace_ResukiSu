@@ -72,7 +72,6 @@ jobs:
 
           echo "✅ Phase de préparation ReSukiSU achevée."
 
-
       - name: Multi-stage Kernel Compilation
         working-directory: ${{ env.KERNEL_PATH }}
         run: |
@@ -85,17 +84,16 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
-          # 💡 AJUSTEMENT DES CHEMINS D'INCLUSION POUR "O=out"
-          # On force le compilateur à chercher dans la racine des sources ET dans le dossier KernelSU natif
-          export KCFLAGS="-Wno-error -I${{ github.workspace }}/${{ env.KERNEL_PATH }}/KernelSU/kernel -I${{ github.workspace }}/${{ env.KERNEL_PATH }}/drivers/kernelsu/kernel"
+          # Ajout des drapeaux d'inclusion absolus pour parer à toute éventualité
+          export KCFLAGS="-Wno-error -I$(pwd)/KernelSU/kernel -I$(pwd)/drivers/kernelsu/kernel"
           
+          # Préparation du defconfig
           cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
-          mkdir -p ${{ env.BUILD_DIR }}
           
-          # 1. Génération de la base .config
-          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
+          # 1. Génération du .config directement à la racine (In-Tree)
+          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 ${{ env.DEFCONFIG }}
           
-          # Forçage des configurations selon la documentation officielle ReSukiSU
+          # Injection des configurations requises
           {
             echo "CONFIG_KSU=y"
             echo "CONFIG_KSU_MANUAL_HOOK=y"
@@ -110,21 +108,19 @@ jobs:
             echo "CONFIG_KRETPROBES=y"
             echo "CONFIG_OVERLAY_FS=y"
             echo "CONFIG_OVERLAY_FS_REDIRECT_DIR=y"
-          } >> ${{ env.BUILD_DIR }}/.config
+          } >> .config
           
-          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
+          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 olddefconfig
           
-          # 2. ⚡ INJECTION CHIRURGICALE DES HOOKS MANUELS (fs/open.c) ⚡
-          echo "🚀 Injection des hooks manuels ReSukiSU..."
+          # 2. ⚡ INJECTION DES HOOKS (fs/open.c) EN RECHERCHE GLOBALE ⚡
+          echo "🚀 Restauration et patch propre de fs/open.c..."
+          git checkout fs/open.c
+          
           python3 -c '
-          import os
-
-          os.system("git checkout fs/open.c")
-
           with open("fs/open.c", "r") as f:
               orig_content = f.read()
 
-          # Inclusion propre grâce au flag -I configuré dans KCFLAGS
+          # Utilisation des chevrons <ksu.h> pris en charge par KCFLAGS
           headers = "#include <ksu.h>\n"
           new_content = headers + orig_content
 
@@ -143,24 +139,17 @@ jobs:
 
           with open("fs/open.c", "w") as f:
               f.write(new_content)
-          
-          # Synchronisation immédiate avec le répertoire de build out/
-          out_open_c = os.path.join("${{ env.BUILD_DIR }}", "fs/open.c")
-          os.makedirs(os.path.dirname(out_open_c), exist_ok=True)
-          with open(out_open_c, "w") as f:
-              f.write(new_content)
-
-          print("✅ fs/open.c configuré avec <ksu.h> global.")
+          print("✅ fs/open.c mis à jour localement.")
           '
 
-          # 3. 🎯 SAUVEGARDE ET PROTECTION DU TACTILE MOTOROLA
+          # 3. 🎯 SÉCURISATION DU PATCH TACTILE MOTOROLA
           echo "🛠️ Application des contournements matériels et signatures..."
           sed -i 's/if (!check_version(/if (0 \&\& !check_version(/g' kernel/module.c
           
           printf "\n/* --- Début Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
           
-          # 4. Lancement de la compilation
-          make O=${{ env.BUILD_DIR }} LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
+          # 4. Lancement de la compilation de l'image (sans O=out)
+          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
           
       - name: Repack & Finalize (Magiskboot)
         working-directory: ${{ github.workspace }}
@@ -178,7 +167,7 @@ jobs:
           
           cd repack
           ./magiskboot unpack boot.img
-          cp ${{ github.workspace }}/${{ env.KERNEL_PATH }}/${{ env.BUILD_DIR }}/arch/arm64/boot/Image kernel
+          cp ${{ github.workspace }}/${{ env.KERNEL_PATH }}/arch/arm64/boot/Image kernel
           ./magiskboot repack boot.img new-boot.img
           mv new-boot.img ../final_boot.img
           
