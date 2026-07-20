@@ -116,8 +116,8 @@ jobs:
           with open("fs/open.c", "r") as f:
               orig_content = f.read()
 
-          # Utilisation de srctree pour garantir que le compilateur trouve le chemin absolu des sources
-          headers = "#include <srctree/drivers/kernelsu/kernel/ksu.h>\n"
+          # On utilise un chemin propre que Kbuild sait résoudre à partir de n'importe quel dossier de sortie (out/)
+          headers = '#include "drivers/kernelsu/kernel/ksu.h"\n'
           new_content = headers + orig_content
 
           # Localisation de do_faccessat pour y poser le hook manuel requis
