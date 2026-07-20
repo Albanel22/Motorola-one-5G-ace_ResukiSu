@@ -48,27 +48,30 @@ jobs:
         run: |
           set -e
 
-          # 🧹 Nettoyage de toute trace résiduelle de KernelSU
+          # 1. 🧹 Nettoyage de toute trace résiduelle de KernelSU
           echo "🧹 Purge absolue des références à KernelSU..."
           sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' Makefile || true
           rm -rf drivers/kernelsu || true
           sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' drivers/Makefile || true
           sed -i '/[kK][eE][rR][nN][eE][lL][sS][uU]/d' drivers/Kconfig || true
 
-          # 📥 Clonage du dépôt officiel SUSFS (branche 4.19 GKI qui s'adapte aux VFS récents)
-          git clone https://gitlab.com/khizis/susfs4linux.git -b gki-android-4.19 susfs_src
+          # 2. 📥 Récupération des fichiers SUSFS 4.19 officiels via GitHub Mirror
+          echo "📥 Téléchargement direct de l'infrastructure SUSFS v4.19..."
+          mkdir -p include/linux
           
-          # Copie des fichiers d'infrastructure de SUSFS dans l'arborescence standard
-          echo "📦 Injection des fichiers d'en-tête et sources de SUSFS..."
-          cp susfs_src/fs/susfs.c fs/
-          cp -r susfs_src/include/linux/* include/linux/
+          curl -LSs "https://raw.githubusercontent.com/gki-susfs/susfs4linux/gki-android-4.19/fs/susfs.c" -o fs/susfs.c
+          curl -LSs "https://raw.githubusercontent.com/gki-susfs/susfs4linux/gki-android-4.19/include/linux/susfs.h" -o include/linux/susfs.h
+
+          # Vérification de sécurité pour s'assurer que les fichiers ne sont pas vides
+          if [ ! -s fs/susfs.c ] || [ ! -s include/linux/susfs.h ]; then
+            echo "❌ Échec du téléchargement des fichiers SUSFS"
+            exit 1
+          fi
           
           # Liaison de susfs.o au système de build de fs/
           if ! grep -q "susfs.o" fs/Makefile; then 
             echo 'obj-$(CONFIG_SUSFS) += susfs.o' >> fs/Makefile
           fi
-
-          rm -rf susfs_src
 
           # Correction adaptative mmap_sem vers mmap_lock (Ton correctif stable du build 266)
           sed -i 's/mmap_sem/mmap_lock/g' fs/proc/base.c || true
