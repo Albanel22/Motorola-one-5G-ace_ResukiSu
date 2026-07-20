@@ -148,8 +148,8 @@ jobs:
           
           printf "\n/* --- Début Patch Tactile --- */\n#include <linux/notifier.h>\n#include <linux/module.h>\nstatic BLOCKING_NOTIFIER_HEAD(motorola_panel_notifier_list);\nint panel_register_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_register(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_register_notifier);\nint panel_unregister_notifier(struct notifier_block *nb) {\n    return blocking_notifier_chain_unregister(&motorola_panel_notifier_list, nb);\n}\nEXPORT_SYMBOL(panel_unregister_notifier);\nvoid touch_set_state(int state) { return; }\nEXPORT_SYMBOL(touch_set_state);\n/* --- Fin Patch Tactile --- */\n" >> techpack/display/msm/msm_drv.c
           
-          # 4. Lancement de la compilation de l'image (sans O=out)
-          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="$KCFLAGS" -j$(nproc) Image
+          # 4. Lancement de la compilation de l'image avec inclusions explicites
+          make LLVM=1 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 KCFLAGS="-Wno-error -I$(pwd)/KernelSU/kernel -I$(pwd)/drivers/kernelsu/kernel" -j$(nproc) Image
           
       - name: Repack & Finalize (Magiskboot)
         working-directory: ${{ github.workspace }}
