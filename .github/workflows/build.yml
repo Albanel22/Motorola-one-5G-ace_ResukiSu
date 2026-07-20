@@ -92,10 +92,11 @@ jobs:
           echo "🚀 Téléchargement et intégration de ReSukiSU..."
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
           
-          # 🔗 LE FIX : On crée des liens pour réparer le chemin exact attendu par le hook (#include "../kernelSU/ksu.h")
-          echo "🔗 Création des redirections de dossiers..."
-          ln -sfn drivers/kernelsu kernelSU
-          ln -sfn drivers/kernelsu KernelSU
+          # 🔗 CRÉATION DES LIENS ABSOLUS POUR KBUILD
+          echo "🔗 Création des redirections de dossiers avec la bonne casse..."
+          ln -sfn $(pwd)/drivers/kernelsu $(pwd)/kernelSU
+          ln -sfn $(pwd)/drivers/kernelsu $(pwd)/KernelSU
+          ln -sfn $(pwd)/drivers/kernelsu $(pwd)/fs/kernelSU
           
           # Préparation du defconfig
           cp arch/arm64/configs/vendor/${{ env.DEFCONFIG }} arch/arm64/configs/${{ env.DEFCONFIG }}
